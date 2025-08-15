@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Hotmail 6-Digit Code Extractor</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 420px; margin: 28px auto; background: #fcfcfc;}
+    input, textarea, button { width: 100%; margin: 10px 0; padding: 8px; }
+    pre { background: #f7f7f7; padding: 8px; }
+    .otp { font-size: 2em; font-weight: bold; color: #1663B0; margin: 12px 0; }
+  </style>
+</head>
+<body>
+  <h1>Get 6-Digit Code from X (Twitter)</h1>
+  <label>Client ID</label>
+  <input id="clientid" placeholder="Client ID" autocomplete="off" />
+  <label>Refresh Token</label>
+  <textarea id="refreshtoken" rows="4" placeholder="Refresh Token"></textarea>
+  <button id="getcode">Lấy mã code!</button>
+  <div class="otp" id="otp"></div>
+  <pre id="result"></pre>
+  <script>
+    document.getElementById('getcode').onclick = async () => {
+      const client_id = document.getElementById('clientid').value.trim();
+      const refresh_token = document.getElementById('refreshtoken').value.trim();
+      const otpDiv = document.getElementById('otp');
+      otpDiv.textContent = '';
+      const resultDiv = document.getElementById('result');
+      resultDiv.textContent = 'Đang lấy access_token...';
+
+      // Gọi API proxy trên Vercel lấy access_token
+      const resp = await fetch('/api/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_id, refresh_token })
+      });
+      const tokenData = await resp.json();
+      if (!tokenData.access_token) {
+        resultDiv.textContent = "❌ Không lấy được access_token:\n" + JSON.stringify(tokenData, null, 2);
+        return;
+      }
+      resultDiv.textContent = 'Đã có access_token. Đang truy vấn mail từ verify@x.com...';
+
+      // Lấy 20 mail mới nhất không filter server
+      const mailResp = await fetch('https://graph.microsoft.com/v1.0/me/messages?$top=20&$orderby=receivedDateTime desc', {
+        headers: { Authorization: 'Bearer ' + tokenData.access_token }
+      });
+      const mailData = await mailResp.json();
+
+      // Lọc tất cả mail từ verify@x.com
+      const emails = mailData.value.filter(m => m.from && m.from.emailAddress &&
+        m.from.emailAddress.address &&
+        m.from.emailAddress.address.toLowerCase() === "verify@x.com");
+
+      // Sắp xếp giảm dần theo nhận mail
+      emails.sort((a, b) => new Date(b.receivedDateTime) - new Date(a.receivedDateTime));
+
+      // Lấy mail mới nhất
+      const email = emails[0];
+
+      if (!email) {
+        resultDiv.textContent = 'Không tìm thấy email nào từ "verify@x.com".';
+        return;
+      }
+
+      // Tìm mã code 6 số trong email mới nhất
+      let code = '';
+      const regex = /\b\d{6}\b/;
+      if (email.subject) {
+        let m = email.subject.match(regex);
+        if(m) code = m[0];
+      }
+      if (!code && email.bodyPreview) {
+        let m = email.bodyPreview.match(regex);
+        if(m) code = m;
+      }
+      if (!code && email.body && email.body.content) {
+        let m = email.body.content.match(regex);
+        if(m) code = m;
+      }
+
+      resultDiv.textContent = 'Thông tin mail mới nhất:\n' +
+        'Subject: ' + (email.subject || '') + '\n' +
+        'Time: ' + (email.receivedDateTime || '') + '\n' +
+        'Preview: ' + (email.bodyPreview || '') + '\n';
+
+      if (code) {
+        otpDiv.textContent = 'Mã xác thực: ' + code;
+      } else {
+        otpDiv.textContent = '❌ Không tìm thấy mã code 6 số!';
+      }
+    }
+  </script>
+</body>
+</html>
